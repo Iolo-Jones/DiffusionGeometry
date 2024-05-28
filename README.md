@@ -1,6 +1,8 @@
 # DiffusionGeometry
 The code for "Diffusion Geometry" (2024)
 
+The notebook **Introduction_to_DG** shows how to import and use some of the basic functions in diffusion geometry.
+
 Core source code:
 DiffusionGeometry contains all the main functions
 DG_classes defines a class structure for computing DG

@@ -22,7 +22,7 @@ def plot_3d(data):
 
 def plot_functions_2d(u, data, rows, cols, cap = -1):
     if cap < 0:
-        cap = max(u[:5].max(), -u[:5].min())
+        cap = 0.9*np.absolute(u[:4]).max()
     fig, ax = plt.subplots(rows, cols, figsize = (25,18))
     for i in range(rows):
         for j in range(cols):
@@ -182,7 +182,10 @@ def plot_quiver_plain_tight(v, dg_class):
     )
     return fig
 
-def plot_scatter(data, c, m):
+def plot_scatter(data, c, m = -1):
+
+    if m < 0:
+        m = np.absolute(c).max()
 
     fig = px.scatter(x = data[:,0], 
                      y = data[:,1], 

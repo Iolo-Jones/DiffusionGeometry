@@ -11,7 +11,7 @@ import pandas as pd
 # ABM data loader
 #
 
-def read_ABM_data(noise):
+def read_ABM_data_full(noise):
     ids = [[45,46,47,48,49],
            [270,271,272,273,274],
            [495,496,497,498,499],
@@ -24,8 +24,8 @@ def read_ABM_data(noise):
             sim_PCs = []
             for time in range(300, 404, 4):
                 df = pd.read_csv(f"./data/ABM_Coordinates/simID{run}_time{time}_{noise}percentNoise.csv")
-                X = df[np.logical_or(df["PointType"] == "Macrophage", df["PointType"] == "Noise")][["x", "y"]].values
-                sim_PCs.append(X)
+                # X = df[np.logical_or(df["PointType"] == "Macrophage", df["PointType"] == "Noise")][["x", "y"]].values
+                sim_PCs.append(df)
             runs.append(sim_PCs)
         experiments.append(runs)
     return experiments
