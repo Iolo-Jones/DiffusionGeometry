@@ -10,6 +10,7 @@ from functools import cached_property
 from typing import TYPE_CHECKING, Sequence
 
 import numpy as np
+from scipy.linalg import block_diag
 
 from diffusion_geometry.tensors.base_tensor.base_tensor_space import BaseTensorSpace
 
@@ -98,15 +99,7 @@ class DirectSumSpace(BaseTensorSpace):
         Combine matrices from each summand into a single block-diagonal matrix.
         """
         assert matrices, "Direct sum with no summands"
-        total = self.dim
-        dtype = np.result_type(*(matrix.dtype for matrix in matrices))
-        result = np.zeros((total, total), dtype=dtype)
-        offset = 0
-        for matrix, space in zip(matrices, self._spaces):
-            size = space.dim
-            result[offset : offset + size, offset : offset + size] = matrix
-            offset += size
-        return result
+        return block_diag(*matrices)
 
     # -------------------------------------------------------------------------
     # Metric and Gram matrix
