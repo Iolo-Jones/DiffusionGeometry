@@ -365,7 +365,7 @@ def _perm_tables(d: int, k: int):
         signs = np.ones((P,), dtype=np.int8)
     else:
         cmp = base_perms[:, :, None] > base_perms[:, None, :]  # (P,k,k) boolean
-        tri = np.tril_indices(k, k=-1)
+        tri = np.triu_indices(k, k=1)
         inv = np.sum(cmp[:, tri[0], tri[1]], axis=1)  # (P,)
         signs = np.where((inv & 1) == 0, 1, -1).astype(np.int8)
 
