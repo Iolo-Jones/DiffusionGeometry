@@ -216,6 +216,7 @@ class DiffusionGeometry:
         cls,
         nbr_indices: np.ndarray,
         nbr_distances: np.ndarray,
+        fixed_bandwidth: Optional[float] = None,
         **kwargs,
     ) -> "DiffusionGeometry":
         """
@@ -236,6 +237,7 @@ class DiffusionGeometry:
             - c (float, default=0.0): Parameter for Markov chain construction.
             - bandwidth_variability (float, default=-0.5): Parameter for bandwidth variability.
             - knn_bandwidth (int, default=8): Number of neighbours for bandwidth estimation.
+            - fixed_bandwidth (float, optional): Explicit Gaussian length scale.
             - rcond (float, default=1e-5): Cutoff for spectral operations.
             - measure (np.ndarray, optional): Stationary measure.
             - function_basis (np.ndarray, optional): Precomputed basis of coefficient functions.
@@ -247,6 +249,7 @@ class DiffusionGeometry:
             c=kwargs.get("c", 0.0),
             bandwidth_variability=kwargs.get("bandwidth_variability", -0.5),
             knn_bandwidth=kwargs.get("knn_bandwidth", 8),
+            fixed_bandwidth=fixed_bandwidth,
         )
         immersion_coords = kwargs.pop("immersion_coords", None)
 
@@ -262,6 +265,7 @@ class DiffusionGeometry:
     def from_point_cloud(
         cls,
         data_matrix: np.ndarray,
+        fixed_bandwidth: Optional[float] = None,
         **kwargs,
     ) -> "DiffusionGeometry":
         """
@@ -280,6 +284,7 @@ class DiffusionGeometry:
             - c (float, default=0.0): Parameter for Markov chain construction.
             - bandwidth_variability (float, default=-0.5): Parameter for bandwidth variability.
             - knn_bandwidth (int, default=8): Number of neighbours for bandwidth estimation.
+            - fixed_bandwidth (float, optional): Explicit Gaussian length scale.
             - regularisation_method (str, default='diffusion'): Regularisation method.
             - rcond (float, default=1e-5): Cutoff for spectral operations.
             - measure (np.ndarray, optional): Stationary measure.
@@ -294,6 +299,7 @@ class DiffusionGeometry:
         return cls.from_knn_graph(
             nbr_indices=nbr_indices,
             nbr_distances=nbr_distances,
+            fixed_bandwidth=fixed_bandwidth,
             **kwargs,
         )
 
