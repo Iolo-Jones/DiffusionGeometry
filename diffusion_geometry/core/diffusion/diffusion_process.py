@@ -106,7 +106,12 @@ def tune_kernel(kernel_entries: np.ndarray, epsilons: np.ndarray):
 
 
 def markov_chain(
-    nbr_distances, nbr_indices, c=0, bandwidth_variability=-0.5, knn_bandwidth=8
+    nbr_distances,
+    nbr_indices,
+    c=0,
+    bandwidth_variability=-0.5,
+    knn_bandwidth=8,
+    fixed_bandwidth=None,
 ):
     """
     Computes the diffusion kernel using a specific Markov chain construction.
@@ -127,6 +132,9 @@ def markov_chain(
         0 for fixed (standard Gaussian), -0.5 for variable (Diffusion Maps).
     knn_bandwidth : int
         Number of NNs for bandwidth estimation.
+    fixed_bandwidth : float, optional
+        Explicit Gaussian length scale. When provided, automatic bandwidth
+        estimation and tuning are skipped.
 
     Returns
     -------
@@ -140,6 +148,30 @@ def markov_chain(
 
     n, knn_kernel = nbr_distances.shape
     assert nbr_indices.shape == (n, knn_kernel)
+
+    if fixed_bandwidth is not None:
+        try:
+            fixed_bandwidth = float(fixed_bandwidth)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                "fixed_bandwidth must be a positive finite scalar"
+            ) from exc
+        if not np.isfinite(fixed_bandwidth) or fixed_bandwidth <= 0:
+            raise ValueError("fixed_bandwidth must be a positive finite scalar")
+
+        kernel = np.exp(-(nbr_distances**2) / fixed_bandwidth**2)
+        density_estimate = kernel.sum(axis=1)
+        alpha = 1 - c / 2
+        density_estimate_alpha = density_estimate**(-alpha)
+        kernel_alpha = kernel * (
+            density_estimate_alpha[:, None]
+            * density_estimate_alpha[nbr_indices]
+        )
+        row_sums = kernel_alpha.sum(axis=1)
+        diffusion_kernel = kernel_alpha / row_sums[:, None]
+        bandwidths = np.full(n, fixed_bandwidth**2 / 4)
+
+        return diffusion_kernel, bandwidths
 
     # 1. Compute the kernel bandwidths rho via kernel density estimation.
 

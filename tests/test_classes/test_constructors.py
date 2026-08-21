@@ -4,6 +4,7 @@ import pytest
 import scipy.sparse as sp
 
 from diffusion_geometry.core import DiffusionGeometry, knn_graph, markov_chain
+import diffusion_geometry.core.diffusion.diffusion_process as diffusion_process
 
 
 def _build_knn_inputs(n=96, d=4, knn_kernel=24, knn_bandwidth=8):
@@ -28,6 +29,102 @@ def _assert_valid_geometry(dg, data_shape):
     assert np.isfinite(dg.immersion_coords).all()
     assert np.isfinite(dg.measure).all()
     assert np.isfinite(dg.function_basis).all()
+
+
+def test_markov_chain_fixed_bandwidth_uses_requested_gaussian_scale(monkeypatch):
+    nbr_distances = np.array([[0.0, 1.0], [0.0, 2.0]])
+    nbr_indices = np.array([[0, 1], [1, 0]])
+    fixed_bandwidth = 2.0
+    c = 0.5
+
+    monkeypatch.setattr(
+        diffusion_process,
+        "compute_local_bandwidths",
+        lambda *_args, **_kwargs: pytest.fail("automatic bandwidth estimation ran"),
+    )
+    monkeypatch.setattr(
+        diffusion_process,
+        "tune_kernel",
+        lambda *_args, **_kwargs: pytest.fail("automatic bandwidth tuning ran"),
+    )
+
+    kernel, bandwidths = markov_chain(
+        nbr_distances=nbr_distances,
+        nbr_indices=nbr_indices,
+        c=c,
+        fixed_bandwidth=fixed_bandwidth,
+    )
+
+    unnormalised = np.exp(-(nbr_distances**2) / fixed_bandwidth**2)
+    density = unnormalised.sum(axis=1)
+    alpha = 1 - c / 2
+    expected = unnormalised * (
+        density[:, None] ** (-alpha) * density[nbr_indices] ** (-alpha)
+    )
+    expected /= expected.sum(axis=1, keepdims=True)
+
+    np.testing.assert_allclose(kernel, expected)
+    np.testing.assert_allclose(bandwidths, fixed_bandwidth**2 / 4)
+
+
+def test_markov_chain_explicit_none_matches_automatic_default():
+    _, nbr_distances, nbr_indices, _, _ = _build_knn_inputs(
+        n=32, d=3, knn_kernel=12, knn_bandwidth=4
+    )
+
+    default_kernel, default_bandwidths = markov_chain(
+        nbr_distances=nbr_distances,
+        nbr_indices=nbr_indices,
+    )
+    none_kernel, none_bandwidths = markov_chain(
+        nbr_distances=nbr_distances,
+        nbr_indices=nbr_indices,
+        fixed_bandwidth=None,
+    )
+
+    np.testing.assert_allclose(none_kernel, default_kernel)
+    np.testing.assert_allclose(none_bandwidths, default_bandwidths)
+
+
+@pytest.mark.parametrize("fixed_bandwidth", [0, -1, np.nan, np.inf])
+def test_markov_chain_rejects_invalid_fixed_bandwidth(fixed_bandwidth):
+    nbr_distances = np.array([[0.0, 1.0], [0.0, 2.0]])
+    nbr_indices = np.array([[0, 1], [1, 0]])
+
+    with pytest.raises(ValueError, match="fixed_bandwidth must be a positive finite scalar"):
+        markov_chain(
+            nbr_distances=nbr_distances,
+            nbr_indices=nbr_indices,
+            fixed_bandwidth=fixed_bandwidth,
+        )
+
+
+@pytest.mark.parametrize("constructor", ["point_cloud", "knn_graph"])
+def test_constructors_forward_fixed_bandwidth(constructor):
+    data, nbr_distances, nbr_indices, _, _ = _build_knn_inputs(
+        n=32, d=3, knn_kernel=12, knn_bandwidth=4
+    )
+    fixed_bandwidth = 0.2
+
+    if constructor == "point_cloud":
+        dg = DiffusionGeometry.from_point_cloud(
+            data_matrix=data,
+            fixed_bandwidth=fixed_bandwidth,
+            knn_kernel=12,
+            n_function_basis=10,
+        )
+    else:
+        dg = DiffusionGeometry.from_knn_graph(
+            nbr_indices=nbr_indices,
+            nbr_distances=nbr_distances,
+            fixed_bandwidth=fixed_bandwidth,
+            data_matrix=data,
+            n_function_basis=10,
+        )
+
+    np.testing.assert_allclose(
+        dg.triple._cdc.keywords["bandwidths"], fixed_bandwidth**2 / 4
+    )
 
 
 @pytest.mark.parametrize("regularisation_method", ["diffusion", "bandlimit", "none"])
