@@ -280,15 +280,11 @@ def plot_quiver_2d(
     return fig
 
 
-import numpy as np
-import plotly.graph_objects as go
-
-
 def plot_quiver_3d(
     data,
     quiver,
     scale=1.0,
-    arrow_scale=0.5,
+    arrow_scale=0.3,
     line_width=5.0,
     shaft_color="black",
     arrow_color="black",
@@ -302,19 +298,24 @@ def plot_quiver_3d(
     far=100.0,
     ortho_scale=1.0,  # size of the orthographic window
     quiver2d_color="black",  # forwarded to plot_quiver_2d if projecting
-    opacity=None,  # scalar or array-like, scales both line opacity and cone size
+    opacity=None,  # scalar or array-like, per-arrow fade
 ):
     """
-    If project_to_2d is False: render a true 3D quiver (Scatter3d+Cone).
+    If project_to_2d is False: render a true 3D quiver (Scatter3d+Mesh3d).
     If True: project (data, data+quiver) to 2D via the given camera & projection,
              then call plot_quiver_2d to get a vector-friendly 2D figure.
+
+    Each arrow runs from data[i] to data[i] + scale * quiver[i]. As in
+    plot_quiver_2d, the arrowhead length is arrow_scale times the arrow length,
+    so head size is proportional to the pointwise magnitude and does not depend
+    on the rest of the data (number of points, spacing, ordering, max norm).
 
     Parameters
     ----------
     opacity : float or array-like, optional
-        If provided, controls line opacity (per vector) and scales cone size.
-        - Scalar: applies uniformly.
-        - Array: length n; values in [0,1].
+        Per-arrow fade in [0,1] (scalar or length n). Arrows are blended
+        towards white rather than made transparent, which looks the same on a
+        white background and needs only one trace for the whole field.
     """
     data = np.asarray(data, float)
     quiver = np.asarray(quiver, float)
@@ -357,85 +358,101 @@ def plot_quiver_3d(
         )
 
     # ---- 3D path ----
-    quiver3d = quiver * scale
-    end = data + quiver3d
-
-    # Validate opacity
-    if opacity is None:
-        line_opacity = 1.0
-        opacity_arr = None
-    else:
-        opa = np.asarray(opacity, float)
-        if opa.ndim == 0:
-            line_opacity = float(np.clip(opa, 0.0, 1.0))
-            opacity_arr = None
-        else:
-            if len(opa) != len(data):
-                raise ValueError("opacity array must match number of quivers.")
-            opacity_arr = np.clip(opa, 0.0, 1.0)
-            line_opacity = None  # handled per segment
+    vec = quiver * scale
+    lengths = np.linalg.norm(vec, axis=1)
+    keep = lengths > 0
+    alpha = None
+    if opacity is not None:
+        alpha = np.clip(np.broadcast_to(np.asarray(opacity, float), len(data)), 0, 1)[keep]
+    data, vec, lengths = data[keep], vec[keep], lengths[keep]
+    directions = vec / lengths[:, None]
+    tips = data + vec
+    head_lengths = arrow_scale * lengths
+    # Shafts stop at the base of the head so the line never pokes through the apex
+    shaft_end = tips - head_lengths[:, None] * directions
 
     fig = go.Figure()
 
-    # --- Shaft lines with variable opacity ---
-    if opacity_arr is not None:
-        for i, a in enumerate(opacity_arr):
-            fig.add_trace(
-                go.Scatter3d(
-                    x=[data[i, 0], end[i, 0]],
-                    y=[data[i, 1], end[i, 1]],
-                    z=[data[i, 2], end[i, 2]],
-                    mode="lines",
-                    line=dict(color=shaft_color, width=line_width),
-                    opacity=float(a),
-                    showlegend=False,
-                )
-            )
-    else:
-        x = np.column_stack((data[:, 0], end[:, 0], np.full(len(data), np.nan))).ravel()
-        y = np.column_stack((data[:, 1], end[:, 1], np.full(len(data), np.nan))).ravel()
-        z = np.column_stack((data[:, 2], end[:, 2], np.full(len(data), np.nan))).ravel()
-        fig.add_trace(
-            go.Scatter3d(
-                x=x,
-                y=y,
-                z=z,
-                mode="lines",
-                line=dict(color=shaft_color, width=line_width),
-                opacity=line_opacity,
-                showlegend=False,
-            )
+    # --- Shafts: one Scatter3d, segments separated by NaNs ---
+    nan = np.full(len(data), np.nan)
+    x, y, z = (np.column_stack((data[:, a], shaft_end[:, a], nan)).ravel() for a in range(3))
+    line = dict(color=shaft_color, width=line_width)
+    if alpha is not None:
+        # Fade towards white via a two-colour scale (one value per segment vertex)
+        line.update(color=np.repeat(alpha, 3), colorscale=[[0, "white"], [1, shaft_color]], cmin=0, cmax=1)
+    fig.add_trace(go.Scatter3d(x=x, y=y, z=z, mode="lines", line=line, showlegend=False))
+
+    # --- Arrowheads: one Mesh3d of cones in data coordinates ---
+    verts, i, j, k = _arrowhead_mesh(tips, directions, head_lengths)
+    head = dict(color=arrow_color)
+    if alpha is not None:
+        n_verts = len(verts) // max(len(data), 1)
+        head = dict(
+            intensity=np.repeat(alpha, n_verts),
+            colorscale=[[0, "white"], [1, arrow_color]],
+            cmin=0,
+            cmax=1,
         )
-
-    # --- Cones (arrowheads) ---
-    # If opacity array provided, scale cone vectors by it (affects size)
-    if opacity_arr is not None:
-        cone_vec = quiver3d * opacity_arr[:, None]
-    else:
-        cone_vec = quiver3d
-
-    lengths = np.linalg.norm(cone_vec, axis=1)
-    max_length = np.max(lengths) if np.any(lengths) else 1.0
-
     fig.add_trace(
-        go.Cone(
-            x=end[:, 0],
-            y=end[:, 1],
-            z=end[:, 2],
-            u=cone_vec[:, 0],
-            v=cone_vec[:, 1],
-            w=cone_vec[:, 2],
-            anchor="tail",
-            sizemode="absolute",
-            sizeref=max_length * arrow_scale,
-            colorscale=[[0, arrow_color], [1, arrow_color]],
+        go.Mesh3d(
+            x=verts[:, 0],
+            y=verts[:, 1],
+            z=verts[:, 2],
+            i=i,
+            j=j,
+            k=k,
+            flatshading=True,
+            lighting=dict(ambient=0.7, diffuse=0.4, specular=0.1),
+            hoverinfo="skip",
             showscale=False,
-            opacity=1.0,  # single cone trace, full opacity
+            **head,
         )
     )
 
     clean_fig(fig)
     return fig
+
+
+def _arrowhead_mesh(tips, directions, lengths, width=0.35, n_sides=12):
+    """
+    Triangulated cones for a batch of arrowheads, in data coordinates.
+
+    Cone m has its apex at tips[m], points along directions[m] (unit vectors),
+    and has height lengths[m] and base radius width * lengths[m]. Returns the
+    vertex array (m*(n_sides+2), 3) and triangle index arrays i, j, k for
+    go.Mesh3d.
+    """
+    m = len(tips)
+    # Orthonormal frame (e1, e2) perpendicular to each direction
+    helper = np.where(
+        np.abs(directions[:, [0]]) < 0.9, [[1.0, 0.0, 0.0]], [[0.0, 1.0, 0.0]]
+    )
+    e1 = np.cross(directions, helper)
+    e1 /= np.linalg.norm(e1, axis=1, keepdims=True)
+    e2 = np.cross(directions, e1)
+
+    angles = 2 * np.pi * np.arange(n_sides) / n_sides
+    base = tips - lengths[:, None] * directions  # (m,3)
+    ring = base[:, None, :] + width * lengths[:, None, None] * (
+        np.cos(angles)[None, :, None] * e1[:, None, :]
+        + np.sin(angles)[None, :, None] * e2[:, None, :]
+    )  # (m,n_sides,3)
+
+    # Per cone: [apex, base centre, ring_0, ..., ring_{n_sides-1}]
+    verts = np.concatenate([tips[:, None], base[:, None], ring], axis=1)
+    verts = verts.reshape(-1, 3).astype(np.float32)  # float32/int32 halve the HTML size
+
+    stride = n_sides + 2
+    offset = (stride * np.arange(m))[:, None]
+    r0 = offset + 2 + np.arange(n_sides)[None, :]  # (m,n_sides)
+    r1 = offset + 2 + (np.arange(n_sides)[None, :] + 1) % n_sides
+    apex = np.broadcast_to(offset, r0.shape)
+    centre = apex + 1
+    # Sides (apex, r0, r1) then base cap (centre, r1, r0)
+    i = np.concatenate([apex, centre], axis=1)
+    j = np.concatenate([r0, r1], axis=1)
+    k = np.concatenate([r1, r0], axis=1)
+    return verts, *(a.ravel().astype(np.int32) for a in (i, j, k))
 
 
 def hodge_star_2_form(omega, orientation: int = +1) -> np.ndarray:
