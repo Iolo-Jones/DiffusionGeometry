@@ -360,7 +360,7 @@ def gen_2d_data(
     n: int = 200,
     noise: float = 0.1,
     *,
-    random_state: Optional[int] = None,
+    seed: Optional[int] = None,
     **dataset_kwargs: Any,
 ) -> Generated:
     """Generate one of the 2D datasets used in the example notebooks.
@@ -378,7 +378,7 @@ def gen_2d_data(
     noise:
         Standard deviation of the isotropic Gaussian noise added to the
         generated coordinates.
-    random_state:
+    seed:
         Optional seed or ``numpy.random.Generator`` to control reproducibility.
     **dataset_kwargs:
         Additional keyword arguments forwarded to the underlying dataset
@@ -399,10 +399,12 @@ def gen_2d_data(
         )
 
     spec = _2D_DATASETS[index]
+    if "random_state" in dataset_kwargs:
+        raise TypeError("random_state was renamed to seed")
     rng = (
-        random_state
-        if isinstance(random_state, np.random.Generator)
-        else np.random.default_rng(random_state)
+        seed
+        if isinstance(seed, np.random.Generator)
+        else np.random.default_rng(seed)
     )
     return spec(n, noise, rng, dataset_kwargs)
 
@@ -774,7 +776,7 @@ def gen_3d_data(
     n: int = 500,
     noise: float = 0.0,
     *,
-    random_state: Optional[int] = None,
+    seed: Optional[int] = None,
     **dataset_kwargs: Any,
 ) -> Generated:
     """Generate one of the 3D datasets used in the example notebooks.
@@ -790,7 +792,7 @@ def gen_3d_data(
     noise:
         Standard deviation of the isotropic Gaussian noise added to the
         coordinates (for datasets without intrinsic noise).
-    random_state:
+    seed:
         Optional seed or ``numpy.random.Generator`` to control reproducibility.
     **dataset_kwargs:
         Additional parameters forwarded to the dataset generator.
@@ -810,10 +812,12 @@ def gen_3d_data(
         )
 
     spec = _3D_DATASETS[kind_key]
+    if "random_state" in dataset_kwargs:
+        raise TypeError("random_state was renamed to seed")
     rng = (
-        random_state
-        if isinstance(random_state, np.random.Generator)
-        else np.random.default_rng(random_state)
+        seed
+        if isinstance(seed, np.random.Generator)
+        else np.random.default_rng(seed)
     )
     return spec(n, noise, rng, dataset_kwargs)
 
