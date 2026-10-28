@@ -1080,6 +1080,112 @@ def clean_fig(fig):
     return fig
 
 
+def match_scene_ranges(*figs):
+    """
+    Give every 3D scene in figs the same axis ranges (the union of all their
+    data), so panels showing different quantities on one point cloud are framed
+    identically and stay aligned when their cameras are linked.
+    """
+    lo, hi = np.full(3, np.inf), np.full(3, -np.inf)
+    for fig in figs:
+        for t in fig.data:
+            if t.type in ("scatter3d", "mesh3d", "cone"):
+                xyz = np.column_stack([np.asarray(getattr(t, a), float) for a in "xyz"])
+                lo = np.fmin(lo, np.nanmin(xyz, axis=0))
+                hi = np.fmax(hi, np.nanmax(xyz, axis=0))
+    for fig in figs:
+        for k in fig.layout:
+            if k.startswith("scene"):
+                fig.layout[k].update(
+                    xaxis_range=[lo[0], hi[0]],
+                    yaxis_range=[lo[1], hi[1]],
+                    zaxis_range=[lo[2], hi[2]],
+                    aspectmode="data",
+                )
+    return figs
+
+
+# Synchronise the cameras of every 3D scene in a figure with those of every other
+# figure in the same data-camera-group, continuously while dragging.
+_LINK_CAMERAS_JS = """
+(function () {
+  const gd = document.getElementById('{plot_id}');
+  const group = gd.closest('[data-camera-group]');
+  if (!group) return;
+  const figures = () => [...document.querySelectorAll(
+    '[data-camera-group="' + group.dataset.cameraGroup + '"] .js-plotly-plot')];
+  const scenesOf = g => Object.keys(g._fullLayout).filter(k => /^scene\\d*$/.test(k));
+  let pending = 0;  // relayouts started here; their echoes are ignored
+
+  function broadcast(ev, fromUser) {
+    if (!fromUser && pending) return;
+    const key = Object.keys(ev).find(k => /^scene\\d*\\.camera$/.test(k));
+    if (!key) return;
+    for (const g of figures()) {
+      // Never relayout the figure being dragged: that resets its own camera mid-drag.
+      if (g === gd) continue;
+      const update = {};
+      for (const s of scenesOf(g)) update[s + '.camera'] = ev[key];
+      pending++;
+      Plotly.relayout(g, update).finally(() => pending--);
+    }
+  }
+  gd.on('plotly_relayouting', ev => broadcast(ev, true));  // emitted only by user drags
+  gd.on('plotly_relayout', ev => broadcast(ev, false));    // drag end, scroll zoom, echoes
+})();
+"""
+
+
+def linked_html(figs, group="dg", include_plotlyjs="cdn"):
+    """
+    HTML fragments for figs whose 3D cameras rotate together.
+
+    Each figure becomes its own plot (one scene per figure: Plotly resets the
+    camera of a figure being dragged if it is updated mid-drag), wrapped in a
+    div filling its container and tagged data-camera-group=group. Every 3D
+    scene of every fragment in the same group on a page follows the one being
+    dragged. Lay the fragments out with your own HTML/CSS. include_plotlyjs is
+    passed to fig.to_html for the first fragment only ("cdn", True, False, or
+    a URL/path to plotly.min.js).
+    """
+    config = {"displayModeBar": False, "responsive": True}
+    return [
+        f'<div data-camera-group="{group}" style="width:100%;height:100%">'
+        + fig.to_html(
+            full_html=False,
+            include_plotlyjs=include_plotlyjs if i == 0 else False,
+            post_script=_LINK_CAMERAS_JS,
+            config=config,
+            default_width="100%",
+            default_height="100%",
+        )
+        + "</div>"
+        for i, fig in enumerate(figs)
+    ]
+
+
+def save_linked_html(figs, path, captions=None, cols=None, panel_size=(450, 450), include_plotlyjs="cdn"):
+    """
+    Write figs to a standalone HTML page as a grid of panels with linked 3D
+    cameras (see linked_html). captions, if given, are HTML strings shown
+    under each panel.
+    """
+    cols = cols or len(figs)
+    w, h = panel_size
+    cells = "".join(
+        f'<figure style="margin:0"><div style="width:{w}px;height:{h}px">{div}</div>'
+        + (f'<figcaption style="text-align:center;font:italic 20px serif">{captions[i]}</figcaption>' if captions else "")
+        + "</figure>"
+        for i, div in enumerate(linked_html(figs, include_plotlyjs=include_plotlyjs))
+    )
+    with open(path, "w") as f:
+        f.write(
+            '<!DOCTYPE html><html><head><meta charset="utf-8"></head>'
+            f'<body style="margin:0;background:white"><div style="display:grid;grid-template-columns:repeat({cols},{w}px)">'
+            f"{cells}</div></body></html>"
+        )
+
+
 def plot_heatmap_2d(X, Y, Z, colorscale=None):
     """
     Plot a smooth 2D heatmap for scalar function values on a grid.
