@@ -399,6 +399,8 @@ def gen_2d_data(
         )
 
     spec = _2D_DATASETS[index]
+    if "random_state" in dataset_kwargs:
+        raise TypeError("random_state was renamed to seed")
     rng = (
         seed
         if isinstance(seed, np.random.Generator)
@@ -810,6 +812,8 @@ def gen_3d_data(
         )
 
     spec = _3D_DATASETS[kind_key]
+    if "random_state" in dataset_kwargs:
+        raise TypeError("random_state was renamed to seed")
     rng = (
         seed
         if isinstance(seed, np.random.Generator)
